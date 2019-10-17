@@ -119,3 +119,62 @@ direction: inbound
 bastion_IP = 35.212.183.241
 someinternalhost_IP = 10.138.0.2
 
+## Homework #4: Main services of GCP
+### Summary
+1. Install and configure gcloud
+2. Create new instance of Compute VM using gcloud
+3. Install a couple of apps: Ruby, Bundler, MongoDB manually
+4. Clone and install application [application](https://github.com/express42/reddit.git)
+5. Create [startupscript](https://cloud.google.com/compute/docs/startupscript) and use it asl part of gcloud command to install all necessary applications automatically
+### Steps
+#### gcloud
+The Cloud SDK is a set of tools for Google Cloud Platform. It contains gcloud, gsutil, and bq command-line tools, which you can use to access Compute Engine, Cloud Storage, BigQuery, and other products and services from the command-line. You can run these tools interactively or in your automated scripts.
+Open [GCP sdk](https://cloud.google.com/sdk/docs/) select your platform for installation instructions. Mine is Ubuntu 18.04 LTS and follow instructions below
+1. Add the Cloud SDK distribution URI as a package source:
+   ```bash
+   echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
+   ```
+   Make sure you have apt-transport-https installed:
+   ```bash
+   sudo apt-get install apt-transport-https ca-certificates
+   ```
+1. Import the Google Cloud public key: 
+   ```bash
+   curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key --keyring /usr/share/keyrings/cloud.google.gpg add -
+   ```
+1. Update and install the Cloud SDK:
+   ```bash
+   sudo apt update && sudo apt install google-cloud-sdk
+   ```   
+1. Optionally, you can install any of these additional components: 
+   * google-cloud-sdk-app-engine-python
+   * google-cloud-sdk-app-engine-python-extras
+   * google-cloud-sdk-app-engine-java
+   * google-cloud-sdk-app-engine-go
+   * google-cloud-sdk-datalab
+   * google-cloud-sdk-datastore-emulator
+   * google-cloud-sdk-pubsub-emulator
+   * google-cloud-sdk-cbt
+   * google-cloud-sdk-cloud-build-local
+   * google-cloud-sdk-bigtable-emulator
+   * kubectl
+1. Run gcloud init to get started: 
+   ```bash
+   gcloud init
+   ```
+1. Enter auth information
+1. Create new Compute vm instanse using command:
+   ```bash
+   gcloud compute instances create reddit-app\
+   --boot-disk-size=10GB \
+   --image-family ubuntu-1604-lts \
+   --image-project=ubuntu-os-cloud \
+   --machine-type=f1-micro \
+   --tags puma-server \
+   --restart-on-failure \
+   --zone=us-west1-c
+   ```
+  All options are self explanatory. gcloud will create vm of type *g1-small* with name reddit-app using Ubuntu 16.04 LTS tagged by *puma-server*
+### Travis CI
+testapp_IP = 35.198.167.169
+testapp_port = 9292
