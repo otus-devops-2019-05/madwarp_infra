@@ -11,9 +11,9 @@ madwarp Infra repository
 1. Configure pritunl vpn-server at **bastion** and check vpn-connection from client 
 ### Challenges
 #### Challenge 1
-Find the way to establish connection from your machine to **internal** using only single command (without intermediary ssh on **bastion**) - see [solution](solution-1)
+Find the way to establish connection from your machine to **internal** using only single command (without intermediary ssh on **bastion**) - see [step 3 ](connect-through-ssh)
 #### Challenge 2
-Add alias someinternalhost to simplify connection from client machine to **internal** - see [solution](solution-2)
+Add alias someinternalhost to simplify connection from client machine to **internal** - see [step 4](connect-through-ssh)
 #### Challenge 3
 Add valid certificate into pritunl vpn-server using sslip.io/xip.io or Let’s Encrypt services
 ### Steps
@@ -63,14 +63,14 @@ Add valid certificate into pritunl vpn-server using sslip.io/xip.io or Let’s E
    ```bash
    ssh IP.ADDRESS.OF.INTERNAL
    ```
-1. Connect to the **internal** server from your client machine using advanced [command](solution-1):
+1. Connect to the **internal** server from your client machine using advanced command:
    ```bash
    ssh -A user@EXTERNAL.ADDRESS.OF.BASTION "ssh -t -t IP.ADDRESS.OF.INTERNAL"
    ```
    > the command *"ssh -t -t IP.ADDRESS.OF.INTERNAL"* in quotes executes immediately on client machine right the after succesful login. As result second ssh session is established at **bastion** and connects to **internal**. Multiple -t parameter forces terminal allocation
-1. Create alias of long connection command for [convenience](solution-2)
+1. Create alias of long connection command for convenience
    ```bash
-   TBD
+   echo "alias internalhost='ssh -A user@EXTERNAL.ADDRESS.OF.BASTION \"ssh -t -t IP.ADDRESS.OF.INTERNAL\"'" >> ~/.bashrc
    ```
 #### Connect through vpn
 1. Turn on http and https traffic for [**bastion**](https://console.cloud.google.com/compute/instancesDetail/zones/us-east1-b/instances/bastion) VM
@@ -102,7 +102,7 @@ Add valid certificate into pritunl vpn-server using sslip.io/xip.io or Let’s E
 1. Mark **bastion** vm instance with network tag *vpn-server-PORT*
 1. Open [firewall rules](https://console.cloud.google.com/networking/firewalls/list) of VPC network and add new rule:
 tag: *vpn-server-PORT*
-source addresses: 0.0.0.0
+source addresses: 0.0.0.0/0
 protocol/ports: udp/PORT
 policy: allow
 direction: inbound
