@@ -1,5 +1,8 @@
 # madwarp_infra
 madwarp Infra repository
+# Markup editors
+[Remarkable](https://remarkableapp.github.io)
+[Haroopad](http://pad.haroopress.com)
 ## Homework #3: GCP
 ### Summary
 1. GCP registration and review
@@ -294,3 +297,101 @@ gcloud compute firewall-rules create puma-server-9292 --direction=INGRESS --prio
 ### Travis CI
 testapp_IP = 34.82.59.50
 testapp_port = 9292
+
+## Homework #5: Using Packer 
+### Summary
+1. Install and configure packer
+1. Manage Application Default Credentials (ADC) of GCP
+1. Create json-template for packer and play with
+     * builders section
+     * provisioners section
+1. Create brande new VM instance from baked image
+### Challenges
+#### Challenge 1
+Parametrize packer-template with *projectId*, *sourceImageFamily*, *machineType*
+#### Challenge 2
+Parametrize packer-template with *image description*, *type and size of storage*, *network name*, *tags*
+#### Challenge 3
+Bake the fully operational image of VM with all dependecies and running application
+#### Challenge 4
+Create new instance of VM backed from image using gcloud
+### Steps
+#### packer installation
+1. [Download](https://www.packer.io/downloads.html) packer for your platform, extract the archive and add directory to PATH
+     ```bash
+     wget https://releases.hashicorp.com/packer/1.4.4/packer_1.4.4_linux_amd64.zip
+     ```
+     ```bash
+     TBD: extraction
+     ```
+     ```bash
+     TBD: adding to path
+     ```
+     ```bash
+     TBD: checking version
+     ```
+#### Application Default Credentials (ADC)
+```bash
+gcloud auth application-default login
+```
+### Packer Template
+1. Prepare template of your image for packer:
+```bash
+cat <<EOF> ubuntu16.json
+{
+ "builders": [
+ {
+ "type": "googlecompute",
+ "project_id": "infra-189607"
+,
+ "image_name": "reddit-base-{{timestamp}}",
+ "image_family": "reddit-base",
+ "source_image_family": "ubuntu-1604-lts",
+ "zone": "europe-west1-b",
+ "ssh_username": "appuser",
+ "machine_type": "f1-micro"
+ }
+ ]
+}
+EOF
+```
+where:
+
+* type: "googlecompute"
+* project_id: "infra-189607"
+* image_family: "reddit-base" 
+* image_name: "reddit-base-{{timestamp}}
+* source_image_family: "ubuntu-1604-lts"
+* zone: "europe-west1-b" 
+* ssh_username: "appuser"
+* machine_type: "f1-micro"
+
+1. Add section "provisioners" right after the builders to template:
+```
+"provisioners": [
+ {
+ "type": "shell",
+ "script": "scripts/install_ruby.sh",
+ "execute_command": "sudo {{.Path}}"
+ },
+ {
+ "type": "shell",
+ "script": "scripts/install_mongodb.sh",
+ "execute_command": "sudo {{.Path}}"
+ }
+ ]
+```
+1. Replace **project_id** by the name of your project using GCP UI or with gcloud:
+```bash
+gcloud projects list
+PROJECT_ID NAME PROJECT_NUMBER
+infra-189607 Infra 529004887562
+```
+1. validate template using *validate* option and fix errors if necessary:
+```bash
+packer validate ./ubuntu16.json
+```
+1. build the image:
+```bash
+ packer build ubuntu16.json
+```
