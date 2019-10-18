@@ -11,9 +11,9 @@ madwarp Infra repository
 1. Configure pritunl vpn-server at **bastion** and check vpn-connection from client 
 ### Challenges
 #### Challenge 1
-Find the way to establish connection from your machine to **internal** using only single command (without intermediary ssh on **bastion**) - see [step 3 ](connect-through-ssh)
+Find the way to establish connection from your machine to **internal** using only single command (without intermediary ssh on **bastion**) - see [step 3 ](#connect-through-ssh)
 #### Challenge 2
-Add alias someinternalhost to simplify connection from client machine to **internal** - see [step 4](connect-through-ssh)
+Add alias someinternalhost to simplify connection from client machine to **internal** - see [step 4](#connect-through-ssh)
 #### Challenge 3
 Add valid certificate into pritunl vpn-server using sslip.io/xip.io or Let’s Encrypt services
 ### Steps
@@ -105,7 +105,7 @@ tag: *vpn-server-PORT*
 source addresses: 0.0.0.0/0
 protocol/ports: udp/PORT
 policy: allow
-direction: inbound
+direction: ingress
 1. Move to the Users section of pritunl UI and download profile (tar archive with *connection.ovpn* file inside)
 1. Establish vpn connection using command (enter user and password if necessary):
    ```bash
@@ -122,14 +122,20 @@ someinternalhost_IP = 10.138.0.2
 ## Homework #4: Main services of GCP
 ### Summary
 1. Install and configure gcloud
-2. Create new instance of Compute VM using gcloud
-3. Install a couple of apps: Ruby, Bundler, MongoDB manually
-4. Clone and install application [application](https://github.com/express42/reddit.git)
-5. Create [startupscript](https://cloud.google.com/compute/docs/startupscript) and use it asl part of gcloud command to install all necessary applications automatically
+1. Create new instance of Compute VM using gcloud
+1. Install a couple of apps: Ruby, Bundler, MongoDB manually
+1. Clone and install [application](https://github.com/express42/reddit.git)
+### Challenges
+#### Challenge 1
+Combine installation steps of Ruby, MongoDB and application into scripts - see [step 1](#ruby-installation), see [step 1](#mongodb-installation) and [step 1](#application-installation)
+#### Challenge 2
+Create [startupscript](https://cloud.google.com/compute/docs/startupscript) and use it as a part of gcloud command to install all necessary applications automatically - see [step 2](#using-startup-scripts-with-gcloud)
+#### Challenge 3
+Add [firewall rule](#opening-of-port-for-reddit-application) with gcloud - [see](#adding-firewall-rule-with-gcloud)
 ### Steps
-#### gcloud
+#### gcloud installation
 The Cloud SDK is a set of tools for Google Cloud Platform. It contains gcloud, gsutil, and bq command-line tools, which you can use to access Compute Engine, Cloud Storage, BigQuery, and other products and services from the command-line. You can run these tools interactively or in your automated scripts.
-Open [GCP sdk](https://cloud.google.com/sdk/docs/) select your platform for installation instructions. Mine is Ubuntu 18.04 LTS and follow instructions below
+Open [GCP sdk](https://cloud.google.com/sdk/docs/) and select your platform for installation instructions. Mine is Ubuntu 18.04 LTS and  instructions for this system are following:
 1. Add the Cloud SDK distribution URI as a package source:
    ```bash
    echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
@@ -147,22 +153,38 @@ Open [GCP sdk](https://cloud.google.com/sdk/docs/) select your platform for inst
    sudo apt update && sudo apt install google-cloud-sdk
    ```   
 1. Optionally, you can install any of these additional components: 
-   * google-cloud-sdk-app-engine-python
-   * google-cloud-sdk-app-engine-python-extras
-   * google-cloud-sdk-app-engine-java
-   * google-cloud-sdk-app-engine-go
-   * google-cloud-sdk-datalab
-   * google-cloud-sdk-datastore-emulator
-   * google-cloud-sdk-pubsub-emulator
-   * google-cloud-sdk-cbt
-   * google-cloud-sdk-cloud-build-local
-   * google-cloud-sdk-bigtable-emulator
-   * kubectl
-1. Run gcloud init to get started: 
-   ```bash
-   gcloud init
-   ```
-1. Enter auth information
+     * google-cloud-sdk-app-engine-python
+     * google-cloud-sdk-app-engine-python-extras
+     * google-cloud-sdk-app-engine-java
+     * google-cloud-sdk-app-engine-go
+     * google-cloud-sdk-datalab
+     * google-cloud-sdk-datastore-emulator
+     * google-cloud-sdk-pubsub-emulator
+     * google-cloud-sdk-cbt
+     * google-cloud-sdk-cloud-build-local
+     * google-cloud-sdk-bigtable-emulator
+     * kubectl
+1. Run gcloud init to get started and follow the procedure of registration: 
+     ```bash
+     gcloud init
+     ```
+1. Enter auth information (login into your google accout and grant access of Google Cloud Account SDK to your GCP )
+1. Choose desired GCP project or create new
+1. Choose default Compute Region and Zone
+  > You can change it later by running [gcloud config set compute/zone NAME] or [gcloud config
+ set compute/region NAME][gcloud config set compute/region NAME]
+ 1. Verify setup with command
+      ```bash
+      gcloud info
+      ```
+      and
+      ```bash
+       gcloud auth list
+      Credentialed Accounts
+    ACTIVE  ACCOUNT
+     \*       someaccount@gmail.com
+      ``` 
+#### New compute VM instance with gcloud
 1. Create new Compute vm instanse using command:
    ```bash
    gcloud compute instances create reddit-app\
@@ -171,10 +193,104 @@ Open [GCP sdk](https://cloud.google.com/sdk/docs/) select your platform for inst
    --image-project=ubuntu-os-cloud \
    --machine-type=f1-micro \
    --tags puma-server \
-   --restart-on-failure \
-   --zone=us-west1-c
+   --restart-on-failure
    ```
+   Remeber you tag: **puma-server**
+#### Ruby installation
   All options are self explanatory. gcloud will create vm of type *g1-small* with name reddit-app using Ubuntu 16.04 LTS tagged by *puma-server*
+1. Login into brand new compute vm via ssh [see this section for details](#connect-through-ssh) and install Ruby and Bundler:
+     ```bash
+     cat <<EOF> install_ruby.sh
+     #!/bin/bash
+     sudo apt update && sudo apt install -y ruby-full ruby-bundler build-essential
+     EOF
+     ```
+     ```bash
+         chmod +x install_ruby.sh && ./install_ruby.sh
+    ```
+#### MongoDB installation
+1. Install MongoDB
+     ```bash
+     cat <<EOF> install_mongodb.sh
+     #!/bin/bash
+     sudo apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv D68FA50FEA312927
+     sudo bash -c 'echo "deb http://repo.mongodb.org/apt/ubuntu xenial/mongodb-org/3.2 multiverse" > /etc/apt/sources.list.d/mongodb-org-3.2.list'
+     sudo apt update && sudo apt install -y mongodb-org
+     sudo systemctl start mongod
+     sudo systemctl enable mongod
+     EOF
+    ```
+    ```bash
+         chmod +x install_mongodb.sh && ./install_mongodb.sh
+    ```
+1. Check the status of MongoDB
+     ```bash
+     sudo systemctl status mongod
+     ```
+#### Reddit installation
+1. Clone and install "Reddit" application
+     ```bash
+     cat <<EOF> deploy.sh
+     #!/bin/bash
+     git clone -b monolith https://github.com/express42/reddit.git
+     cd reddit && bundle install
+     puma -d
+     EOF
+     ```
+     ```bash
+     chmod +x deploy.sh && deploy.sh
+    ```
+1. check running port of puma
+     ```bash
+     ps -aux | grep puma
+     user     10729  1.7  4.5 515408 26848 ?        Sl   20:22   0:00 puma 3.10.0 (tcp://0.0.0.0:*PORT_PUMA*) [reddit]
+     ```
+#### Opening of port for Reddit application
+1. Open [firewall rules](https://console.cloud.google.com/networking/firewalls/list) of VPC network and add new rule (replace *PORT_PUMA* by real value):
+tag: **puma-server**
+source addresses: 0.0.0.0/0
+protocol/ports: tcp/*PORT_PUMA*
+policy: allow
+direction: ingress
+1. Check that application is available to the outer world by opening browser with external IP address of **reddit-app** vm and *PORT_PUMA* of running puma. 
+#### Using startup scripts with gcloud
+gcloud has a option to perform automated tasks every time your instance boots up. It's called startup script and has many options to specify source of th script:
+* local startup script - script located on your local computer and provided by file or directly
+   ```bash
+   gcloud compute instances create example-instance \
+    --metadata-from-file startup-script=examples/scripts/install.sh
+   ```
+   or 
+   ```bash
+   gcloud compute instances create example-instance --tags http-server \
+   --metadata startup-script='#! /bin/bash
+   # Installs apache and a custom homepage
+   sudo su -
+   apt-get update
+   ```
+*  [Cloud Storage](https://cloud.google.com/storage) startup script
+   ```bash
+   gcloud compute instances create example-instance --scopes storage-ro \
+    --metadata startup-script-url=gs://bucket/startupscript.sh
+   ```
+> I'll choose file as a source of startup script and modify [command](new-compute-vm-instance-with-gcloud) slightly to create new instance of VM with ready to go "Reddit" application right after start
+
+1. Combine **deploy.sh**, **install_mongodb.sh**, **install_ruby.sh** into single script (startupscript.sh) and clean up unnecessary lines 
+> You don't have to set permissions on the file to make it executable - gcloud will do it for you
+
+1. Create new VM instance adding *--metadata-from-file startup-script* option:
+     ```bash
+     gcloud compute instances create reddit-app-with-startup \
+     --boot-disk-size=10GB \
+     --image-family ubuntu-1604-lts \
+     --image-project=ubuntu-os-cloud \
+     --machine-type=f1-micro \
+     --tags puma-server \
+     --restart-on-failure \
+     --metadata-from-file startup-script=./startupscript.sh
+     ```
+#### Adding firewall rule with gcloud
+gcloud compute firewall-rules create puma-server-9292 --direction=INGRESS --priority=1000 --network=default --action=ALLOW --rules=tcp:9292 --source-ranges=0.0.0.0/0 --target-tags=puma-server
 ### Travis CI
-testapp_IP = 35.198.167.169
+testapp_IP = 34.82.59.50
 testapp_port = 9292
