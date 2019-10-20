@@ -1,0 +1,5 @@
+{
+    "project_id":"infra-256019",
+    "source_image_family": "ubuntu-1604-lts",
+    "image_description":"Basic image with Ruby and MongoDB"             
+}

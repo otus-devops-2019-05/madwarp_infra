@@ -1,8 +1,8 @@
 # madwarp_infra
 madwarp Infra repository
 # Markup editors
-[Remarkable](https://remarkableapp.github.io)
-[Haroopad](http://pad.haroopress.com)
+* [Remarkable](https://remarkableapp.github.io)
+* [Haroopad](http://pad.haroopress.com)
 ## Homework #3: GCP
 ### Summary
 1. GCP registration and review
@@ -248,7 +248,7 @@ Open [GCP sdk](https://cloud.google.com/sdk/docs/) and select your platform for 
      ps -aux | grep puma
      user     10729  1.7  4.5 515408 26848 ?        Sl   20:22   0:00 puma 3.10.0 (tcp://0.0.0.0:*PORT_PUMA*) [reddit]
      ```
-#### Opening of port for Reddit application
+#### Opening the port for Reddit application
 1. Open [firewall rules](https://console.cloud.google.com/networking/firewalls/list) of VPC network and add new rule (replace *PORT_PUMA* by real value):
 tag: **puma-server**
 source addresses: 0.0.0.0/0
@@ -271,6 +271,7 @@ gcloud has a option to perform automated tasks every time your instance boots up
    sudo su -
    apt-get update
    ```
+   
 *  [Cloud Storage](https://cloud.google.com/storage) startup script
    ```bash
    gcloud compute instances create example-instance --scopes storage-ro \
@@ -279,6 +280,7 @@ gcloud has a option to perform automated tasks every time your instance boots up
 > I'll choose file as a source of startup script and modify [command](new-compute-vm-instance-with-gcloud) slightly to create new instance of VM with ready to go "Reddit" application right after start
 
 1. Combine **deploy.sh**, **install_mongodb.sh**, **install_ruby.sh** into single script (startupscript.sh) and clean up unnecessary lines 
+
 > You don't have to set permissions on the file to make it executable - gcloud will do it for you
 
 1. Create new VM instance adding *--metadata-from-file startup-script* option:
@@ -306,31 +308,36 @@ testapp_port = 9292
      * builders section
      * provisioners section
 1. Create brande new VM instance from baked image
+1. Parametrize packer template
 ### Challenges
 #### Challenge 1
-Parametrize packer-template with *projectId*, *sourceImageFamily*, *machineType*
+Parametrize packer-template with *projectId*, *sourceImageFamily*, *machineType*, *image description*, *type and size of storage*, *network name*, *tags* - [see](#packer-template-paramterization)
 #### Challenge 2
-Parametrize packer-template with *image description*, *type and size of storage*, *network name*, *tags*
+Bake the fully operational image of VM with all dependecies and running application - [see](#immutable-image)
 #### Challenge 3
-Bake the fully operational image of VM with all dependecies and running application
-#### Challenge 4
-Create new instance of VM backed from image using gcloud
+Create new instance of VM backed from image using gcloud - see [step 6](#immutable-image)
 ### Steps
 #### packer installation
 1. [Download](https://www.packer.io/downloads.html) packer for your platform, extract the archive and add directory to PATH
-     ```bash
-     wget https://releases.hashicorp.com/packer/1.4.4/packer_1.4.4_linux_amd64.zip
-     ```
-     ```bash
-     TBD: extraction
-     ```
-     ```bash
-     TBD: adding to path
-     ```
-     ```bash
-     TBD: checking version
-     ```
+```bash
+wget https://releases.hashicorp.com/packer/1.4.4/packer_1.4.4_linux_amd64.zip
+```
+
+```bash
+sudo unzip packer_1.4.4_linux_386.zip -d /opt/packer/
+```
+```bash
+#Add this line to the end of ~/.profile
+export PATH=$PATH:/opt/packer
+#Apply changes
+source ~/.profile
+```
+```bash
+packer -v
+1.4.4
+```
 #### Application Default Credentials (ADC)
+Packer uses GCP API to manage the cloud resources using auth credentials. Let's create credentials from packer:
 ```bash
 gcloud auth application-default login
 ```
@@ -342,12 +349,11 @@ cat <<EOF> ubuntu16.json
  "builders": [
  {
  "type": "googlecompute",
- "project_id": "infra-189607"
-,
+ "project_id": "infra-189607",
  "image_name": "reddit-base-{{timestamp}}",
  "image_family": "reddit-base",
  "source_image_family": "ubuntu-1604-lts",
- "zone": "europe-west1-b",
+ "zone": "us-west1-c",
  "ssh_username": "appuser",
  "machine_type": "f1-micro"
  }
@@ -355,19 +361,24 @@ cat <<EOF> ubuntu16.json
 }
 EOF
 ```
-where:
+1. Replace **project_id** by value from you GCP project and change **ssh_username**. You can find projectId by running command:
+```bash
+gcloud projects list
+PROJECT_ID            NAME              PROJECT_NUMBER
+numeric-point-256019  My First Project  978260595302
+infra-256019          Infra             645207766587
 
-* type: "googlecompute"
-* project_id: "infra-189607"
-* image_family: "reddit-base" 
-* image_name: "reddit-base-{{timestamp}}
-* source_image_family: "ubuntu-1604-lts"
-* zone: "europe-west1-b" 
-* ssh_username: "appuser"
-* machine_type: "f1-micro"
+```
+The **builders** section defines what will be built by a set of attribute:
+* type - cloud platform type of resource ([googlecompute](https://www.packer.io/docs/builders/googlecompute.html) in our case)
+* image_name - desired image name with dynamic placeholder filled by current timestamp
+* image_family - image group
+* source_image_family -  basic image for building
+* ssh_username - temporary user for script running (provisioning) durning build process
+* etc.
 
 1. Add section "provisioners" right after the builders to template:
-```
+```json
 "provisioners": [
  {
  "type": "shell",
@@ -381,17 +392,136 @@ where:
  }
  ]
 ```
-1. Replace **project_id** by the name of your project using GCP UI or with gcloud:
-```bash
-gcloud projects list
-PROJECT_ID NAME PROJECT_NUMBER
-infra-189607 Infra 529004887562
-```
+The **provisioners** section allows to install software, change system settings and configure applications. We will use scripts from previous sections to install Ruby (*install_ruby.sh*) and mongoDB (*install_mongodb.sh*) to install required software automatically with [shell provisioner](https://www.packer.io/docs/provisioners/shell.html)
+
 1. validate template using *validate* option and fix errors if necessary:
 ```bash
 packer validate ./ubuntu16.json
+Template validated successfully.
+
 ```
-1. build the image:
+1. And finally build the image:
 ```bash
- packer build ubuntu16.json
+packer build ubuntu16.json
+...
+==> Builds finished. The artifacts of successful builds are:
+--> googlecompute: A disk image was created: reddit-base-1571564434
 ```
+1. Check GCP console that [image](https://cloud.google.com/compute/images) is succesfully created
+1. Create new instance of VM using gcloud:
+```bash
+gcloud compute instances create reddit-app-from-image \
+--boot-disk-size=10GB \
+--image-family reddit-base \
+--image-project=infra-256019 \
+--machine-type=f1-micro \
+--tags puma-server \
+--restart-on-failure 
+Created [https://www.googleapis.com/compute/v1/projects/otus-infra-256019/zones/us-west1-c/instances/reddit-app-from-image].
+NAME                   ZONE        MACHINE_TYPE  PREEMPTIBLE  INTERNAL_IP  EXTERNAL_IP     STATUS
+reddit-app-from-image  us-west1-c  f1-micro                   10.138.0.9   35.233.186.249  RUNNING
+
+```
+#### Packer template paramterization
+User [variables](https://www.packer.io/docs/templates/user-variables.html) allow your templates to be further configured with variables from the command-line, environment variables, Vault, or files
+1. Add variables section to template **ubuntu16.json**:
+```json
+"variables": {
+    "project_id": null,
+    "source_image_family": null,
+    "machine_type":"f1-micro",
+    "disk_size":"10",
+    "disk_type":"pd-standard",
+    "image_description":null,
+    "tags":["puma-server"]
+}
+```
+If the default value is null, then the user variable will be required. This means that the user must specify a value for this variable or template validation will fail
+1. Modify **builders** section to substitute variables using *{{user `variable`}}* template:
+```json
+"builders": [
+ {
+ "type": "googlecompute",
+ "project_id": "{{user `project_id`}}",
+ "image_name": "reddit-base-{{timestamp}}",
+ "image_family": "reddit-base",
+ "image_description":"{{user `image_description`}}",
+ "source_image_family": "{{user `source_image_family`}}",
+ "zone": "us-west1-c",
+ "ssh_username": "user",
+ "machine_type": "{{user `machine_type`}}",
+ "disk_size": "{{user `disk_size`}}",
+ "disk_type":"{{user `disk_type`}}",
+ "tags":"{{user `tags`}}"
+ 
+ }
+ ]
+```
+1. Create new file **variables.json** and specify actual values for variables:
+```bash
+cat <<EOF> variables.json
+{
+  "project_id":"infra-256019",
+  "source_image_family": "ubuntu-1604-lts",
+  "image_description":"Basic image with Ruby and MongoDB"
+}
+EOF
+```
+1. Verify parameterized template using command:
+```bash
+packer validate -var-file=variables.json ubuntu16.json
+```
+1. Create new image
+```
+packer build -var-file=variables.json ubuntu16.json
+
+```
+
+### Immutable image
+Reddit-base image still requires to install apllication and start it manually. We can "bake" new image **reddit-full** based on **reddit-base** by adding installation of Reddit and creating reddit.service
+1. Copy **ubuntu16.json** to **immutable.json**
+1. Change *source_image_family* from variables to **reddit-base** -  new image will be built on top of latest *reddit-base-XXXXXXXXXXX* image with Ruby and MongoDB preinstalled
+1. Change *image_name* and *image_family* of *builders* section to **reddit-full**:
+```
+ "image_name": "reddit-full-{{timestamp}}",
+ "image_family": "reddit-full",
+```
+
+1. Replace **provisioners** section by
+```json
+ "provisioners": [
+ {
+ "type": "shell",
+ "script": "scripts/deploy.sh",
+ "execute_command": "sudo {{.Path}}"
+ },
+ {
+ "type": "shell",
+ "script": "scripts/install_service.sh",
+ "execute_command": "sudo {{.Path}}"
+ }
+ ]
+```
+
+where 
+* scripts/deploy.sh will clone Reddit repository
+* scripts/install_service.sh will create service *reddit* that autostarts after vm instance is up
+
+1. Since template has only one mandatory variable we can specify it directly from command using *-var* option:
+```bash
+packer validate -var project_id=infra-256019 immutable.json 
+```
+```bash
+packer build -var project_id=infra-256019 immutable.json
+```
+1. And finally create new instance from **reddit-full** image family:
+```bash
+gcloud compute instances create reddit-app-from-baked-image \
+--boot-disk-size=10GB \
+--image-family reddit-full \
+--image-project=infra-256019 \
+--machine-type=f1-micro \
+--tags puma-server \
+--restart-on-failure
+```
+
