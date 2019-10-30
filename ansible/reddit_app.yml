@@ -1,0 +1,11 @@
+---
+- name: Configure hosts & deploy application
+  hosts: all
+  tasks:
+    - name: Change mongo config file
+      become: true # <-- Execute under root
+      template:
+        src: templates/mongod.conf.j2 # <-- Path to local template
+        dest: /etc/mongod.conf # <-- Path to remote host
+        mode: 0644 # <-- Permisssions of file
+      tags: db-tag

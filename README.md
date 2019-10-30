@@ -870,9 +870,20 @@ If we will add new key manually using GCP console and apply configuration with *
 
 ## Homework #7: Infratructure as a Code with Terraform (continues)
 ### Summary
+1. Import existing infrastructure into terraform
+2. Implicit and explicit resource dependencies
+3. Separate VM for application and database
+4. Using terraform modules
+5. Create two environments and reuse existing modules
+6. Use Google Storage bucket as backend for terraform
+
 ### Challenges
 #### Challenge 1
-Create module vpc with firewall rules
+Create module vpc with firewall rules and grant access to random IP address - see [step 9](#vpc-module)
+#### Challenge 2
+Move terraform backend to Cloug Bucket - [see](#remote-backend)
+#### Challenge 3
+Add provisioners that will install and start application - [see](#adding-provisioners-to-module-app)
 ### Steps
 #### Add existing firewall rule
 1. Add default firewall rule for ssh:
@@ -1317,8 +1328,15 @@ ansible --version
 ansible 2.8.6
 ```
 
+#### Ansible structure
+Ansible is based on concepts of:
+ * [ansible.cfg](https://raw.githubusercontent.com/ansible/ansible/devel/examples/ansible.cfg) - main configuration file. Used for plugin management, default vaules and redefine of parameters, inventory location
+ * [invetory](https://docs.ansible.com/ansible/latest/intro_inventory.html) - grouping of hosts, nested groups, aliases for hosts
+ * [modules](https://docs.ansible.com/ansible/latest/modules_by_category.html) - libraries for task execution and tracking the state of tasks. OS operations, software of hardware, external resource management
+ * playbooks - set of scenarios to describe software installation and configuration using host grouping
+
 #### Ansible configuration
-Ansible can use file as inventory for servver by specifiening **-i** option
+Ansible can use file as inventory of servers by specifiening **-i** option
 1. Create **inventory** file and add *redditappserver* entry for reddit VM instance (replace reddit_external_ip by real IP address):
 ```
 redditappserver ansible_host=reddit_external_ip ansible_user=appuser \    ansible_private_key_file=~/.ssh/appuser
@@ -1571,3 +1589,58 @@ inventory = ./dynamic_inventory.sh
 ```bash
 ansible all -m ping
 ```
+
+## Homework # 9: Ansible advanced technics
+### Summary
+1. Using playbooks, handlers and templates with single playbook and single scenario (play)
+2. Using playbooks, handlers and templates with single playbook and multiple scenarios (plays)
+3. Using multiple playbooks
+4. Change provisioners from packer to ansible playbooks
+
+### Turning of provisioners of app and dm modules of terraform
+#### Playbook for Reddit app
+MongoDB is listening *127.0.0.1* by default. Since MongoDB now is working in separate VM we need to change configuration of database to listen on interface that is available to Reddit application VM
+1. Create file **ansible/reddit_app.yml** and add *mongodb* configuration with tag **db-tag**:
+```
+ ---
+ - name: Configure hosts & deploy application
+  hosts: all
+  tasks:
+    - name: Change mongo config file
+      become: true # <-- Execute under root
+      template:
+        src: templates/mongod.conf.j2 # <-- Path to local template
+        dest: /etc/mongod.conf # <-- Path to remote host
+        mode: 0644 # <-- Permisssions of file
+      tags: db-tag```
+> Adding tag **db-tag** into the task gives possibility to  execute task individually
+1. Create file **templates/mongod.conf.j2**:
+```yaml
+# Where and how to store data.
+storage:
+  dbPath: /var/lib/mongodb
+  journal:
+    enabled: true
+# where to write logging data.
+systemLog:
+  destination: file
+  logAppend: true
+  path: /var/log/mongodb/mongod.log
+# network interfaces
+net:
+  # default - is a filter of Jinja2. Use value of argument when variable at the left is undefined
+  port: {{ mongo_port | default('27017') }}
+  bindIp: {{ mongo_bind_ip }}
+```
+1. Execute command **ansible-playbook** with option *--check* to verify the syntax and check modifications:
+```
+ansible-playbook reddit_app.yml --check --limit db
+```
+> option *--limit* overrides target hosts of playbook
+2. Add variables section
+```
+TDB
+```
+
+#### Ansible handlers
+
