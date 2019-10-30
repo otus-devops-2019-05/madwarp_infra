@@ -323,6 +323,7 @@ testapp_port = 9292
      * provisioners section
 1. Create brande new VM instance from baked image
 1. Parametrize packer template
+
 ### Challenges
 #### Challenge 1
 Parametrize packer-template with *projectId*, *sourceImageFamily*, *machineType*, *image description*, *type and size of storage*, *network name*, *tags* - [see](#packer-template-paramterization)
@@ -408,12 +409,10 @@ The **builders** section defines what will be built by a set of attribute:
 ```
 
 The **provisioners** section allows to install software, change system settings and configure applications. We will use scripts from previous sections to install Ruby (*install_ruby.sh*) and mongoDB (*install_mongodb.sh*) to install required software automatically with [shell provisioner](https://www.packer.io/docs/provisioners/shell.html)
-
 1. validate template using *validate* option and fix errors if necessary:
 ```bash
 packer validate ./ubuntu16.json
 Template validated successfully.
-
 ```
 1. And finally build the image:
 ```bash
@@ -489,7 +488,6 @@ packer validate -var-file=variables.json ubuntu16.json
 1. Create new image
 ```
 packer build -var-file=variables.json ubuntu16.json
-
 ```
 
 ### Immutable image
@@ -517,10 +515,9 @@ Reddit-base image still requires to install apllication and start it manually. W
  }
  ]
 ```
-
 where 
-* scripts/deploy.sh will clone Reddit repository
-* scripts/install_service.sh will create service *reddit* that autostarts after vm instance is up
+ * scripts/deploy.sh will clone Reddit repository
+ * scripts/install_service.sh will create service *reddit* that autostarts after vm instance is up
 
 1. Since template has only one mandatory variable we can specify it directly from command using *-var* option:
 ```bash
@@ -672,7 +669,7 @@ Permission denied (publickey)
 ```json
 metadata {
 # Path to public key
-ssh-keys = "appuser:${file("~/.ssh/warp.pub")}"
+ssh-keys = "appuser:${file("~/.ssh/appuser.pub")}"
 }
 ```
 1. Validate updated plan and apply changes:
@@ -684,6 +681,7 @@ Plan: 0 to add, 1 to change, 0 to destroy.
 ```bash
 ssh user@IP.ADDRESS.OF.VM
 ```
+
 #### Firewall rule management
 1. Add firewall rule into **main.tf**:
 ```
@@ -1287,4 +1285,289 @@ module "app" {
   ssh_user              = "${var.ssh_user}"
   db_address            = "${module.db.mongo_db_internal_ip}"
 }
+```
+
+## Homework #8: Ansilble first steps
+### Summary
+1. Ansible installation and configuration
+2. Basic functions and inventory
+3. Ansible modules
+4. Simple playbook
+
+### Challenges
+#### Challenge 1
+Create dynamic inventory based on script execution - see [here](#dynamic-inventories)
+### Steps
+#### Ansible installation
+Ansible requires python 2.7, pip or easy_install nad python on all client machines
+1. Install pip or easy_install:
+```bash
+sudo apt install python-pip
+```
+1. Create file **requirements.txt** that will be used to specify dependencies for pip with content:
+```
+ansible>=2.4
+```
+1. Install Ansible and check installation:
+```
+sudo apt install ansible
+```
+```bash
+ansible --version
+ansible 2.8.6
+```
+
+#### Ansible configuration
+Ansible can use file as inventory for servver by specifiening **-i** option
+1. Create **inventory** file and add *redditappserver* entry for reddit VM instance (replace reddit_external_ip by real IP address):
+```
+redditappserver ansible_host=reddit_external_ip ansible_user=appuser \    ansible_private_key_file=~/.ssh/appuser
+```
+1. Check that ansible will connect to *redditappserver* by using module *ping*:
+```bash
+ansible redditappserver -i ./inventory -m ping
+redditappserver | SUCCESS => {
+    "ansible_facts": {
+        "discovered_interpreter_python": "/usr/bin/python"
+    }, 
+    "changed": false, 
+    "ping": "pong"
+}
+```
+1. Add *dbserver* entry for MongoDB VM instance (replace db_external_ip by real IP address):
+```
+dbserver ansible_host=db_external_ip ansible_user=appuser \    ansible_private_key_file=~/.ssh/appuser
+```
+1. Check that ansible will connect to *dbserver* by using module *ping*:
+```bash
+ansible dbserver -i ./inventory -m ping
+dbserver | SUCCESS => {
+    "ansible_facts": {
+        "discovered_interpreter_python": "/usr/bin/python"
+    }, 
+    "changed": false, 
+    "ping": "pong"
+}
+```
+
+Ansible command looks too long: you have to specify inventory file for each invocation.
+1. Let's create **ansible.cfg** file and specify all options from **inventory** file:
+```
+[defaults]
+inventory = ./inventory
+remote_user = appuser
+private_key_file = ~/.ssh/appuser
+host_key_checking = False
+retry_files_enabled = False
+```
+1. Remove all duplicated option from inventory file. It should look like this:
+```
+redditappserver ansible_host=reddit_external_ip
+dbserver ansible_host=db_external_ip
+```
+1. Use module **command** to execute *uptime* in remote hosts with **-a** module option (*-a* means argument):
+```bash
+ansible dbserver -m command -a uptime
+dbserver | CHANGED | rc=0 >>
+ 08:54:48 up 14:07,  1 user,  load average: 0.00, 0.00, 0.00
+```
+
+#### Host grouping - INI format
+We can specify the group of hosts to to manage all of them together in **inventory** file
+1. Add group **app** and **db** to **inventory**:
+```
+[app] # Group name
+redditappserver ansible_host=reddit_external_ip
+[db] # Group name
+dbserver ansible_host=db_external_ip
+```
+1. Now we can execute commands by groups instead of servers:
+```bash 
+ansible app -m ping
+```
+
+#### Host grouping - YAML format
+[Inventory's](https://docs.ansible.com/ansible/latest/user_guide/intro_inventory.html) yaml format have been added to Ansible tsrarting from v. 2.4
+1. Create **inventory.yml** file (replace *reddit_external_ip* and *db_external_ip*):
+```yml
+app:
+  hosts:
+    redditappserver:
+      ansible_host: reddit_external_ip
+db:
+  hosts:
+    dbserver:
+      ansible_host: db_external_ip
+```
+1. Validate **inventory.yml** using *-i* option of ansible:
+```bash
+ansible all -m ping -i inventory.yml
+```
+
+#### Checking version of installed components
+1. Check the version of Ruby at **app** group using **command** module:
+```bash
+ansible app -m command -a 'ruby -v'
+edditappserver | CHANGED | rc=0 >>
+ruby 2.3.1p112 (2016-04-26) [x86_64-linux-gnu]
+```
+1. Check the version of Bunder at **app** group using **command** module:
+```bash
+ansible app -m command -a 'bundler -v'
+redditappserver | CHANGED | rc=0 >>
+Bundler version 1.11.2```
+```
+1. Check version of Bunlder and Ruby with single command:
+```bash
+ansible app -m command -a 'ruby -v; bundler -v'
+redditappserver | FAILED | rc=1 >>
+ruby: invalid option -;  (-h will show valid options) (RuntimeError)non-zero return code
+```
+> Module **command** does not use shell (*sh* or *bash*). So stream redirection or pipes will not work. Use module **shell** in that case
+
+1. Check version of Bunlder and Ruby with **shell** module in single command:
+```bash
+ansible app -m shell -a 'ruby -v; bundler -v'
+redditappserver | CHANGED | rc=0 >>
+ruby 2.3.1p112 (2016-04-26) [x86_64-linux-gnu]
+Bundler version 1.11.2
+```
+
+#### Checking service status
+Let's check status of *mongod* service of **db** intstance host using different approaches
+1. Using module *command* or *shell*:
+```bash
+ansible db -m command -a 'systemctl status mongod'
+```
+```bash
+ansible db -m shell -a 'systemctl status mongod'
+```
+1. Using module *systemd* dedicated to service management:
+```bash
+ansible db -m systemd -a name=mongod
+```
+1. Using module *service* compatible with *init.d* services:
+```bash
+ansible db -m service -a name=mongod
+```
+
+#### Using git module
+1. Call *git* module twice
+```bash
+ansible app -m git -a 'repo=https://github.com/express42/reddit.git dest=/home/appuser/reddit'
+```
+```bash
+ansible app -m git -a 'repo=https://github.com/express42/reddit.git dest=/home/appuser/reddit'
+```
+All invocations are completed succesfully
+
+1. Call module *command* and check the error:
+```bash
+ansible app -m command -a 'git clone https://github.com/express42/reddit.git /home/appuser/reddit'
+redditappserver | FAILED | rc=128 >>
+fatal: destination path '/home/appuser/reddit' already exists and is not an empty directory.non-zero return code
+```
+
+#### Writing playbooks
+Playbooks is a list of scenarios that will use ansible modules to reach target state of system. Single scenario called a *play*. Scenarios are executed in order of appearence. Tasks are executed sequentially.
+1. Create file **ansible/clone.yml** with following content:
+```yml
+ - name: Clone
+   hosts: app
+  tasks:
+    - name: Clone Reddit repo
+      git:
+        repo: https://github.com/express42/reddit.git
+        dest: /home/appuser/reddit
+```
+ * **hosts** - target servers
+ * **tasks** - list of modules to be executed
+ * **git** - git module with arguments
+1. Execute playbook **clone.yml**:
+```bash
+ansible-playbook clone.yml
+PLAY RECAP ****************************************
+redditappserver            : ok=2    changed=0    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
+```
+1. Remove **reddit** directory of **app** server:
+```bash
+ansible app -m command -a 'rm -rf ~/reddit'
+redditappserver | CHANGED | rc=0 >>
+```
+
+1. Execute playbook **clone.yml** once again:
+```bash
+ansible-playbook clone.yml
+PLAY RECAP ****************************************
+redditappserver            : ok=2    changed=1    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0   
+```
+> The only differnce of output is **changed=1**. After removal of *reddit* directory Ansible checked out a fresh copy of Reddit repository and reported that state of instance has changed
+
+#### Dynamic inventories
+Ansible supports dynamic generation of inventory by calling a [script](https://docs.ansible.com/ansible/latest/dev_guide/developing_inventory.html#developing-inventory-scripts) that shoud return json to standart output. But this json differs from static json inventory
+1. Change yml-inventory to json-inventory and save content to file **inventory-static.json**:
+```json
+{
+   "app": {
+      "hosts": {
+         "redditappserver": {
+            "ansible_host": "reddit.external.ip.address"
+         }
+      }
+   },
+   "db": {
+      "hosts": {
+         "dbserver": {
+            "ansible_host": "db.external.ip.address"
+         }
+      }
+   }
+}
+```
+```bash
+# Checking json-inventory
+ansible all -m ping -i inventory-static.json
+```
+
+1. Create script **dynamic_inventory.sh** that grabs output variables **reddit_external_ip** and **db_external_ip** using *terraform output* command, injects the vaules of terraform variables and prints content in json format:
+```bash
+#!/bin/bash
+currentDir=$(pwd)
+cd $currentDir/../terraform/stage
+reddit_external_ip=$(terraform output reddit_external_ip)
+db_external_ip=$(terraform output db_external_ip)
+cd $currentDir
+scriptContent=" 
+{
+    "_meta": {
+      "hostvars": {}
+    },
+    "app": {
+      "hosts": ["$reddit_external_ip"]
+    },
+    "db": {
+      "hosts": ["$db_external_ip"]
+    }
+}
+"
+echo $scriptContent
+echo $scriptContent > inventory.json
+```
+1. Execute the script and check the output:
+```
+chmod +x dynamic_inventory.sh && ./dynamic_inventory.sh
+{ _meta: { hostvars: {} }, app: { hosts: [reddit_external_ip] }, db: { hosts: [db_external_ip] } }
+```
+> Have you noticed the difference between static and dynamic json? We have added *_meta* section to return all of the host variables in one script execution
+
+1. Now we can add **dynamic_inventory.sh** as inventory to **ansible.cfg** and check that everything is working smoothly:
+```
+[defaults]
+# Ini inventory
+#inventory = ./inventory
+# Dynamic inventory 
+inventory = ./dynamic_inventory.sh
+```
+```bash
+ansible all -m ping
 ```
