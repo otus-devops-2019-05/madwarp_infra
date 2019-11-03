@@ -1,0 +1,20 @@
+---
+- name: Download Reddit apllication # < -- Changed description
+  hosts: app # < -- Default server group
+  become: true # < -- all nested tasks amd handlers will be executed as root
+  #tags: deploy-tag
+  tasks:
+    - name: Fetch the latest version of application code
+      git:
+        repo: 'https://github.com/express42/reddit.git'
+        dest: /home/appuser/reddit
+        version: monolith # <-- branch      
+      notify: reload puma
+
+    - name: Bundle install
+      bundler:
+        state: present
+        chdir: /home/appuser/reddit # <-- working directory of bundler
+  handlers:    
+    - name: reload puma      
+      systemd: name=puma state=reloaded

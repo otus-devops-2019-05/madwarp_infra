@@ -1,0 +1,27 @@
+---
+- name: Configure Reddit apllication # < -- Changed description
+  hosts: app # < -- Default server group
+  become: true # < -- all nested tasks amd handlers will be executed as root
+ #tags: app-tag
+  vars:
+    db_internal_ip: 10.138.15.202
+  tasks:
+    - name: Add unit file for Puma      
+      copy:
+        src: files/puma.service
+        dest: /etc/systemd/system/puma.service      
+      notify: restart puma
+
+    - name: Add config for DB connection
+      template:
+        src: templates/db_config.j2
+        dest: /home/appuser/db_config
+        owner: appuser
+        group: appuser
+      
+    - name: enable puma      
+      systemd: name=puma enabled=yes      
+
+  handlers:    
+    - name: restart puma      
+      systemd: name=puma state=restarted

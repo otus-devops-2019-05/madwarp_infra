@@ -1597,10 +1597,10 @@ ansible all -m ping
 3. Using multiple playbooks
 4. Change provisioners from packer to ansible playbooks
 
-### Turning of provisioners of app and dm modules of terraform
-#### Playbook for Reddit app
+### Turning off provisioners of app and dm modules of terraform
+#### Single playbook and single scenario
 MongoDB is listening *127.0.0.1* by default. Since MongoDB now is working in separate VM we need to change configuration of database to listen on interface that is available to Reddit application VM
-1. Create file **ansible/reddit_app.yml** and add *mongodb* configuration with tag **db-tag**:
+1. Create file **ansible/reddit_app_one_play.yml** and add *mongodb* configuration with tag **db-tag**:
 ```
  ---
  - name: Configure hosts & deploy application
@@ -1613,7 +1613,7 @@ MongoDB is listening *127.0.0.1* by default. Since MongoDB now is working in sep
         dest: /etc/mongod.conf # <-- Path to remote host
         mode: 0644 # <-- Permisssions of file
       tags: db-tag```
-> Adding tag **db-tag** into the task gives possibility to  execute task individually
+> Adding tag **db-tag** into the task gives possibility to  execute task individually using comand *--limit*
 1. Create file **templates/mongod.conf.j2**:
 ```yaml
 # Where and how to store data.
@@ -1632,15 +1632,365 @@ net:
   port: {{ mongo_port | default('27017') }}
   bindIp: {{ mongo_bind_ip }}
 ```
+
 1. Execute command **ansible-playbook** with option *--check* to verify the syntax and check modifications:
+```bash
+ansible-playbook reddit_app_one_play.yml --check --limit db
+TASK [Change mongo config file]
+ ************************************
+fatal: [35.247.70.59]: FAILED! => {"changed": false, "msg": "AnsibleUndefinedVariable: 'mongo_bind_ip' is undefined"}
+PLAY RECAP
+ ************************************
+35.247.70.59               : ok=1    changed=0    unreachable=0    failed=1
 ```
-ansible-playbook reddit_app.yml --check --limit db
-```
+
 > option *--limit* overrides target hosts of playbook
-2. Add variables section
-```
-TDB
+
+2. Add missing variable **mongo_bind_ip** using *vars* block:
+```yaml
+...
+ - name: Configure hosts & deploy application
+   hosts: all
+   vars:
+    mongo_bind_ip: 0.0.0.0 # <-- Variable with default value
+   tasks:
+...
 ```
 
-#### Ansible handlers
+##### Ansible handlers
+Ansible handlers are similar to tasks but are executed using notifcations from task when it changes the state. Userfull for resttart of services when cafiguration files are changed
+1. Add block **handlers** to  *reddit_app_one_play.yml* and new task *"restart mongod"*:
+```yaml
+ ...
+    tags: db-tag
+  handlers: 
+    - name: restart mongod
+      become: true
+      service: name=mongod state=restarted
+```
 
+1. Apply changes:
+```bash
+ansible-playbook reddit_app_one_play.yml --limit db
+```
+
+##### Application tasks
+1. Create file **files/puma.service** with following content:
+```
+[Unit]
+Description=Puma HTTP Server
+After=network.target
+[Service]
+Type=simple
+EnvironmentFile=/home/appuser/db_config
+User=appuser
+WorkingDirectory=/home/appuser/reddit
+ExecStart=/bin/bash -lc 'puma'
+Restart=always
+[Install]
+WantedBy=multi-user.target
+```
+
+1. Add 2 tasks with module *copy* and systemd to copy prepared unit-file and configure autostart:
+```yaml
+tasks:
+ - name: Change mongo config file
+...
+ - name: Add unit file for Puma
+   become: true
+   copy:
+     src: files/puma.service
+     dest: /etc/systemd/system/puma.service
+   tags: app-tag
+   notify: reload puma
+ - name: enable puma
+   become: true
+   systemd: name=puma enabled=yes
+   tags: app-tag
+```
+
+1. Add notifier to restart puma service:
+```
+ handlers:
+ - name: restart mongod
+   become: true
+   service: name=mongod state=restarted
+ - name: reload puma
+   become: true
+   systemd: name=puma state=restarted
+```
+
+1. Create template file **templates/db_config.j2** containing value for environment variable *DATABASE_URL* to redefine address of MongoDB for Reddit app:
+```
+DATABASE_URL={{ db_internal_ip }}
+```
+
+1. Add variable **db_internal_ip** to the variables section of playbook (replace ADDRESs.OF.MONGO.DB by internal ip address of mongodb instance). The placeholder **db_internal_ip** of *db_config.j2* will be replaced by the  value from palybook variable:
+```
+db_internal_ip: ADDRES.OF.MONGO.DB
+```
+
+1. Add task to copy **db_config** to the directory of [EnvironmentFile](#application-unit):
+```
+ - name: Add unit file for Puma
+ ...
+ - name: Add config for DB connection
+ template:
+ src: templates/db_config.j2
+ dest: /home/appuser/db_config
+ tags: app-tag
+```
+
+1. Verify and apply changes:
+```bash
+ansible-playbook reddit_app_one_play.yml --check --limit app --tags app-tag
+```
+```bash
+ansible-playbook reddit_app_one_play.yml --limit app --tags app-tag
+```
+
+##### Database tasks
+1. Add new tasks with modules **git** and **bundler** to checkout Reddit application and install Ruby Gems:
+```
+ - name: Fetch the latest version of application code
+   git:
+     repo: 'https://github.com/express42/reddit.git'
+     dest: /home/appuser/reddit
+     version: monolith # <-- branch
+   tags: deploy-tag
+   notify: reload puma
+ - name: Bundle install
+   bundler:
+     state: present
+     chdir: /home/appuser/reddit # <-- working directory of bundler
+   tags: deploy-tag
+```
+
+1. Verify and apply changes using tag **deploy-tag**:
+```bash
+ansible-playbook reddit_app_one_play.yml --check --limit app --tags deploy-tag
+```
+```bash
+ansible-playbook reddit_app_one_play.yml --limit app --tags deploy-tag
+```
+
+#### Single playbook and several plays (scenarios)
+Previously we have to specify *-limit* option to apply changes to selected groups of servers (app, db) only and *--tags* to execute limited set of tasks. It looks cumbersome. Let`s divide this single scenario
+##### Play for MongoDB
+1. Copy variables, tasks, handlers related to MongoDB to **reddit_app_multiple_plays.yml**
+```
+ ---
+ - name: Configure MongoDB for Reddit app # < -- Changed description
+  hosts: db # < -- Default server group
+  become: true # < -- all nested tasks amd handlers will be executed as root
+  tags: db-tag
+  vars:
+    mongo_bind_ip: 0.0.0.0 # <-- Variable with default value    
+  tasks:
+    - name: Change mongo config file      
+      template:
+        src: templates/mongod.conf.j2 # <-- Path to local template
+        dest: /etc/mongod.conf # <-- Path to remote host
+        mode: 0644 # <-- Permisssions of file      
+      notify: restart mongod    
+  handlers:
+    - name: restart mongod      
+      service: name=mongod state=restarted
+```
+
+> We have changed *hosts* to **db**, moved *become* and *tags* to upper level of play
+
+##### Play for Reddit app installation
+1. Copy variables, tasks, handlers related to Reddit app installation to **reddit_app_multiple_plays.yml**:
+```
+ - name: Download Reddit apllication # < -- Changed description
+  hosts: app # < -- Default server group
+  become: true # < -- all nested tasks amd handlers will be executed as root
+  tags: deploy-tag
+  tasks:
+    - name: Fetch the latest version of application code
+      git:
+        repo: 'https://github.com/express42/reddit.git'
+        dest: /home/appuser/reddit
+        version: monolith # <-- branch      
+      notify: reload puma
+
+    - name: Bundle install
+      bundler:
+        state: present
+        chdir: /home/appuser/reddit # <-- working directory of bundler
+  handlers:    
+    - name: reload puma      
+      systemd: name=puma state=reloaded
+```
+
+> We've changed *tags* to **deploy-tag**, handler's name to **reload puma**
+
+##### Play for Reddit app configuration
+1. Copy variables, tasks, handlers related to Reddit app to **reddit_app_multiple_plays.yml**:
+``` 
+ - name: Configure Reddit apllication # < -- Changed description
+  hosts: app # < -- Default server group
+  become: true # < -- all nested tasks amd handlers will be executed as root
+  tags: app-tag
+  vars:
+    db_internal_ip: IP.ADDRESS.OF.MONGODB
+  tasks:
+    - name: Add unit file for Puma      
+      copy:
+        src: files/puma.service
+        dest: /etc/systemd/system/puma.service      
+      notify: reload puma
+      
+    - name: Add config for DB connection
+      template:
+        src: templates/db_config.j2
+        dest: /home/appuser/db_config
+        owner: appuser
+        group: appuser      
+        
+    - name: enable puma      
+      systemd: name=puma enabled=yes      
+
+  handlers:    
+    - name: reload puma      
+      systemd: name=puma state=restarted
+```
+
+##### Check and apply changes
+1. Execute playbook with tag **db-tag**:
+```bash
+ansible-playbook reddit_app_multiple_plays.yml --check --tags db-tag
+```
+```bash
+ansible-playbook reddit_app_multiple_plays.yml --tags db-tag
+```
+
+1. Execute playbook with tag **app-tag**:
+```bash
+ansible-playbook reddit_app_multiple_plays.yml --check --tags app-tag
+```
+```bash
+ansible-playbook reddit_app_multiple_plays.yml --tags app-tag
+```
+
+1. Execute playbook with tag **deploy-tag**:
+```bash
+ansible-playbook reddit_app_multiple_plays.yml --check --tags deploy-tag
+```
+```bash
+ansible-playbook reddit_app_multiple_plays.yml --tags deploy-tag
+```
+
+### Several playbooks
+The content of reddit_app_multiple_plays.yml is pretty complex. We can split it to three playbooks: **app.yml**, **db.yml**, **deploy.yml** and remove tags
+1. Create **site.yml** that will contain all three playbooks:
+```
+ ---
+ - import_playbook: db.yml
+ - import_playbook: app.yml
+ - import_playbook: deploy.yml
+```
+
+1. And apply changes:
+```bash
+ansible-playbook site.yml --check
+ansible-playbook site.yml
+```
+
+### Provisioning with Ansible
+Using [documentation](https://docs.ansible.com/ansible/latest/list_of_all_modules.html) of modules we can replace provisioners of packer (**app.json**, **db.json**) from shell scripts (*packer/scripts/install_ruby.sh*,*packer/scripts/install_mongodb.sh*) to ansible modules
+1. Create file **ansible/packer_app.yml** and use module [apt](https://docs.ansible.com/ansible/latest/modules/apt_module.html#apt-module) to install Ruby and Bundler:
+```
+ ---
+ - name: Install Ruby and Packer 
+  hosts: app 
+  become: true # < -- sudo
+  tasks:
+    - name: Install Ruby and Bundler
+      apt:
+        name:
+          - ruby-full
+          - ruby-bundler
+          - build-essential
+        update_cache: true  # < -- apt update before install
+```
+
+1. Create file **ansible/packer_db.yml** and use modules:
+ * [apt_key](https://docs.ansible.com/ansible/latest/modules/apt_key_module.html#apt-key-module) to add apt key,
+ * [apt_repository](https://docs.ansible.com/ansible/latest/modules/apt_repository_module.html#apt-repository-module) to add apt repository,
+ * [apt](https://docs.ansible.com/ansible/latest/modules/apt_module.html#apt-module) to install MongoDB,
+ * [systemd](https://docs.ansible.com/ansible/latest/modules/systemd_module.html#systemd-module) to enable autostart  and start the service
+
+ ```
+ ---
+ - name: Install and Start MongoDB for Reddit app # 
+  hosts: db
+  become: true # < -- sudo
+  tasks:
+    - name: Add an apt key
+      apt_key:
+        keyserver: hkp://keyserver.ubuntu.com:80
+        id: D68FA50FEA312927
+
+    - name: Add MongoDB repository into sources list
+      apt_repository:
+        repo: deb http://repo.mongodb.org/apt/ubuntu xenial/mongodb-org/3.2 multiverse
+        state: present
+
+    - name: Install mongodb-org package
+      apt:
+        name: mongodb-org          
+        update_cache: true
+
+    - name: Enable autostart of  MongoDB service
+      systemd:
+        name: puma
+        enabled: true
+        state: started        
+
+ ```
+
+1. Replace the provisioner of **packer/app.json** from *shell* to *ansible*:
+```json
+"provisioners": [
+{
+"type": "ansible",
+"playbook_file": "ansible/packer_app.yml"
+}
+]
+```
+
+1. Replace the provisioner of **packer/db.json** from *shell* to *ansible*:
+```json
+"provisioners": [
+{
+"type": "ansible",
+"playbook_file": "ansible/packer_db.yml"
+}
+]
+```
+
+1. Validate and build new images:
+```bash
+packer validate -var-file=variables.json app.json
+```
+```bash
+packer validate -var-file=variables.json db.json
+```
+```bash
+packer build -var-file=variables.json app.json
+```
+```bash
+packer build -var-file=variables.json db.json
+```
+
+1. Apply new infrastructure
+```bash
+cd terraform && terraform destroy && terraform apply
+```
+
+1. Apply ansible playbook
+```bash
+ansible-playbook site.yml
+```
