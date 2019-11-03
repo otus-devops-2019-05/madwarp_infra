@@ -1973,16 +1973,16 @@ Using [documentation](https://docs.ansible.com/ansible/latest/list_of_all_module
 
 1. Validate and build new images:
 ```bash
-packer validate -var-file=variables.json app.json
+packer validate -var-file=packer/variables.json packer/app.json
 ```
 ```bash
-packer validate -var-file=variables.json db.json
+packer validate -var-file=packer/variables.json packer/db.json
 ```
 ```bash
-packer build -var-file=variables.json app.json
+packer build -var-file=packer/variables.json packer/app.json
 ```
 ```bash
-packer build -var-file=variables.json db.json
+packer build -var-file=packer/variables.json packer/db.json
 ```
 
 1. Apply new infrastructure
