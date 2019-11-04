@@ -1,0 +1,6 @@
+---
+- name: Configure MongoDB for Reddit app # < -- Changed description
+  hosts: db # < -- Default server group
+  become: true # < -- all nested tasks amd handlers will be executed as root  
+  roles:
+    - db

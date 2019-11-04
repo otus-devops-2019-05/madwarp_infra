@@ -1,0 +1,1 @@
+{ _meta: { hostvars: {} }, app: { hosts: [35.247.70.59] }, db: { hosts: [34.83.142.184] } }

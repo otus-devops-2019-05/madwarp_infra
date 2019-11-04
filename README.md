@@ -1994,3 +1994,185 @@ cd terraform && terraform destroy && terraform apply
 ```bash
 ansible-playbook site.yml
 ```
+
+## Homework #10: Ansible roles and environments
+### Summary
+1. Move playbooks to roles
+1. Using community roles
+1. Using Ansible Vault for environments
+### Challenges
+### Steps
+#### Ansible roles
+Playbooks are not suitable for enterprise solutions - a lot of files, no versioning, too much of hardcoded values. Ansible roles to the rescue - they are allow to group tasks, handlers, files, templates, variable into single and reusable component that can be shared with community ([Ansible galaxy](https://galaxy.ansible.com/))
+##### Ansible galaxy
+1. Create directory **roles** and initialize structure of new roles:
+```bash
+ansible-galaxy init app
+```
+```bash
+ansible-galaxy init db
+```
+
+1. Check the structure:
+```bash
+tree db
+db
+├── defaults		# directory for default vaules
+│   └── main.yml
+├── files
+├── handlers
+│   └── main.yml
+├── meta		# directory for roles, dependencies, authors
+│   └── main.yml
+├── README.md
+├── tasks		# directory for tasks
+│   └── main.yml
+├── templates
+├── tests
+│   ├── inventory
+│   └── test.yml
+└── vars			# directory for immutable variables
+    └── main.yml
+```
+
+##### Database role
+1. Copy task from **ansible/db.yml** to **ansible/roles/ db/tasks/main.yml**:
+```yml
+ - name: Change mongo config file      
+    template:
+      src: templates/mongod.conf.j2 # <-- Path to local template
+      dest: /etc/mongod.conf # <-- Path to remote host
+      mode: 0644 # <-- Permisssions of file      
+    notify: restart mongod
+```
+
+1. Copy the template **ansible/templates/mongod.conf.j2** to **ansible/roles/db/templates/**:
+```bash
+cp ../templates/mongod.conf.j2 db/templates/
+
+```
+
+> modules *template* and *copy* of role will lookup directories **files** and **templates**, so we can change the path to file of **src** parameter:
+
+```yml
+ ...
+      template:
+        src: mongod.conf.j2 # <-- Changed path
+        dest: /etc/mongod.conf # 
+ ...
+```
+
+1. Copy handler *restart mongod* to **ansible/roles/db/handlers/main.yml**:
+```yml
+ - name: restart mongod
+    service: name=mongod state=restarted
+```
+
+1. Create default variables at **ansible/roles/db/defaults/main.yml**:
+```yml
+mongo_port: 27017
+mongo_bind_ip: 127.0.0.1
+```
+
+1. Remove tasks and handlers from **ansible/db.yml** and use role **db**:
+```yml
+---
+- name: Configure MongoDB for Reddit app # < -- Changed description
+  hosts: db # < -- Default server group
+  become: true # < -- all nested tasks amd handlers will be executed as root
+
+  vars:
+    mongo_bind_ip: 0.0.0.0 # <-- Variable with default value 
+  roles:
+    - db
+```
+
+##### Application role
+1. Copy all tasks of **app.yml*** to **app/tasks/main.yml** and adjust all pathes to files and templates
+1. Copy unit file **ansible/files/puma.service** to **ansible/roles/app/files/**
+```bash
+cp ../files/puma.service app/files/
+```
+
+1. Copy template **ansible/templates/db_config.j2** to **ansible/roles/app/templates/**
+1. Copy handler *restart puma* to **ansible/roles/db/handlers/main.yml**
+1. Add default value for variable *db_host* at **ansible/roles/db/defaults/main.yml**:
+```yml
+ # defaults file for app
+db_host: 127.0.0.1
+```
+
+1. Remove tasks and handlers from **ansible/app.yml** and use role **app**:
+```yml
+---
+- name: Configure Reddit apllication
+  hosts: app # < -- Default server group
+  become: true # < -- all nested tasks amd handlers will be executed as root
+  vars:
+    db_internal_ip: 10.138.15.202
+  roles:
+    - app
+
+```
+
+##### Check results
+```bash
+ansible-playbook site.yml --check
+
+```
+```bash
+ansible-playbook site.yml
+```
+
+#### Environments
+Ansible allows to define variables for host groups of inventory file by reading files from **group_vars** directory
+
+1. Create 2 directories **environments/stage/group_vars** and **environments/prod/group_vars**:
+```bash
+mkdir -p environments/stage/group_vars && mkdir -p environments/prod/group_vars
+```
+
+1. Copy **ansible/inventory** to **environments/stage** and **environments/prod**
+1. Create file **stage/group_vars/app** to define variables of group of hosts with name **app** by moving all variables of **ansible/app.yml**:
+```yml
+db_internal_ip: 10.138.15.202
+```
+
+1. Create file **stage/group_vars/db** to define variables of group of hosts with name **db** by moving all variables of **ansible/db.yml**:
+```yml
+db_internal_ip: 10.138.15.202
+```
+
+1. In addition we can use default group **all** to define variables for all groups (create file  **stage/group_vars/all**):
+```yml
+env: stage
+```
+
+1. Copy **group_vars** of **stage** environment to **prod** and change the value of env to **prod**:
+```yml
+env: prod
+```
+
+We've create variable **env**. Now it's time to add default value of varible to roles *app* and *db*:
+```yml
+# content of ansible/roles/app/defaults/main.yml
+# defaults file for app
+db_host: 127.0.0.1
+env: local
+```
+```yml
+#content of ansible/roles/db/defaults/main.yml
+# defaults file for db
+mongo_port: 27017
+mongo_bind_ip: 127.0.0.1
+env: local
+```
+
+1. Add logging task to role *db* and *app* using module **debug** (*roles/db/tasks/main.yml* and *roles/db/tasks/main.yml*):
+```
+ - name: Show info about the env this host belongs to
+debug:
+msg: "This host is in {{ env }} environment!!!"
+```
+
+1. Move all playbooks to **ansible/playbooks** and update packer provisioners

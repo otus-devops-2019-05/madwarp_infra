@@ -1,0 +1,6 @@
+---
+- name: Configure Reddit apllication # < -- Changed description
+  hosts: app # < -- Default server group
+  become: true # < -- all nested tasks amd handlers will be executed as root 
+  roles:
+    - app
