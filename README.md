@@ -323,6 +323,7 @@ testapp_port = 9292
      * provisioners section
 1. Create brande new VM instance from baked image
 1. Parametrize packer template
+
 ### Challenges
 #### Challenge 1
 Parametrize packer-template with *projectId*, *sourceImageFamily*, *machineType*, *image description*, *type and size of storage*, *network name*, *tags* - [see](#packer-template-paramterization)
@@ -408,12 +409,10 @@ The **builders** section defines what will be built by a set of attribute:
 ```
 
 The **provisioners** section allows to install software, change system settings and configure applications. We will use scripts from previous sections to install Ruby (*install_ruby.sh*) and mongoDB (*install_mongodb.sh*) to install required software automatically with [shell provisioner](https://www.packer.io/docs/provisioners/shell.html)
-
 1. validate template using *validate* option and fix errors if necessary:
 ```bash
 packer validate ./ubuntu16.json
 Template validated successfully.
-
 ```
 1. And finally build the image:
 ```bash
@@ -489,7 +488,6 @@ packer validate -var-file=variables.json ubuntu16.json
 1. Create new image
 ```
 packer build -var-file=variables.json ubuntu16.json
-
 ```
 
 ### Immutable image
@@ -517,10 +515,9 @@ Reddit-base image still requires to install apllication and start it manually. W
  }
  ]
 ```
-
 where 
-* scripts/deploy.sh will clone Reddit repository
-* scripts/install_service.sh will create service *reddit* that autostarts after vm instance is up
+ * scripts/deploy.sh will clone Reddit repository
+ * scripts/install_service.sh will create service *reddit* that autostarts after vm instance is up
 
 1. Since template has only one mandatory variable we can specify it directly from command using *-var* option:
 ```bash
@@ -672,7 +669,7 @@ Permission denied (publickey)
 ```json
 metadata {
 # Path to public key
-ssh-keys = "appuser:${file("~/.ssh/warp.pub")}"
+ssh-keys = "appuser:${file("~/.ssh/appuser.pub")}"
 }
 ```
 1. Validate updated plan and apply changes:
@@ -684,6 +681,7 @@ Plan: 0 to add, 1 to change, 0 to destroy.
 ```bash
 ssh user@IP.ADDRESS.OF.VM
 ```
+
 #### Firewall rule management
 1. Add firewall rule into **main.tf**:
 ```
@@ -872,9 +870,20 @@ If we will add new key manually using GCP console and apply configuration with *
 
 ## Homework #7: Infratructure as a Code with Terraform (continues)
 ### Summary
+1. Import existing infrastructure into terraform
+2. Implicit and explicit resource dependencies
+3. Separate VM for application and database
+4. Using terraform modules
+5. Create two environments and reuse existing modules
+6. Use Google Storage bucket as backend for terraform
+
 ### Challenges
 #### Challenge 1
-Create module vpc with firewall rules
+Create module vpc with firewall rules and grant access to random IP address - see [step 9](#vpc-module)
+#### Challenge 2
+Move terraform backend to Cloug Bucket - [see](#remote-backend)
+#### Challenge 3
+Add provisioners that will install and start application - [see](#adding-provisioners-to-module-app)
 ### Steps
 #### Add existing firewall rule
 1. Add default firewall rule for ssh:
@@ -1287,4 +1296,701 @@ module "app" {
   ssh_user              = "${var.ssh_user}"
   db_address            = "${module.db.mongo_db_internal_ip}"
 }
+```
+
+## Homework #8: Ansilble first steps
+### Summary
+1. Ansible installation and configuration
+2. Basic functions and inventory
+3. Ansible modules
+4. Simple playbook
+
+### Challenges
+#### Challenge 1
+Create dynamic inventory based on script execution - see [here](#dynamic-inventories)
+### Steps
+#### Ansible installation
+Ansible requires python 2.7, pip or easy_install nad python on all client machines
+1. Install pip or easy_install:
+```bash
+sudo apt install python-pip
+```
+1. Create file **requirements.txt** that will be used to specify dependencies for pip with content:
+```
+ansible>=2.4
+```
+1. Install Ansible and check installation:
+```
+sudo apt install ansible
+```
+```bash
+ansible --version
+ansible 2.8.6
+```
+
+#### Ansible structure
+Ansible is based on concepts of:
+ * [ansible.cfg](https://raw.githubusercontent.com/ansible/ansible/devel/examples/ansible.cfg) - main configuration file. Used for plugin management, default vaules and redefine of parameters, inventory location
+ * [invetory](https://docs.ansible.com/ansible/latest/intro_inventory.html) - grouping of hosts, nested groups, aliases for hosts
+ * [modules](https://docs.ansible.com/ansible/latest/modules_by_category.html) - libraries for task execution and tracking the state of tasks. OS operations, software of hardware, external resource management
+ * playbooks - set of scenarios to describe software installation and configuration using host grouping
+
+#### Ansible configuration
+Ansible can use file as inventory of servers by specifiening **-i** option
+1. Create **inventory** file and add *redditappserver* entry for reddit VM instance (replace reddit_external_ip by real IP address):
+```
+redditappserver ansible_host=reddit_external_ip ansible_user=appuser \    ansible_private_key_file=~/.ssh/appuser
+```
+1. Check that ansible will connect to *redditappserver* by using module *ping*:
+```bash
+ansible redditappserver -i ./inventory -m ping
+redditappserver | SUCCESS => {
+    "ansible_facts": {
+        "discovered_interpreter_python": "/usr/bin/python"
+    }, 
+    "changed": false, 
+    "ping": "pong"
+}
+```
+1. Add *dbserver* entry for MongoDB VM instance (replace db_external_ip by real IP address):
+```
+dbserver ansible_host=db_external_ip ansible_user=appuser \    ansible_private_key_file=~/.ssh/appuser
+```
+1. Check that ansible will connect to *dbserver* by using module *ping*:
+```bash
+ansible dbserver -i ./inventory -m ping
+dbserver | SUCCESS => {
+    "ansible_facts": {
+        "discovered_interpreter_python": "/usr/bin/python"
+    }, 
+    "changed": false, 
+    "ping": "pong"
+}
+```
+
+Ansible command looks too long: you have to specify inventory file for each invocation.
+1. Let's create **ansible.cfg** file and specify all options from **inventory** file:
+```
+[defaults]
+inventory = ./inventory
+remote_user = appuser
+private_key_file = ~/.ssh/appuser
+host_key_checking = False
+retry_files_enabled = False
+```
+1. Remove all duplicated option from inventory file. It should look like this:
+```
+redditappserver ansible_host=reddit_external_ip
+dbserver ansible_host=db_external_ip
+```
+1. Use module **command** to execute *uptime* in remote hosts with **-a** module option (*-a* means argument):
+```bash
+ansible dbserver -m command -a uptime
+dbserver | CHANGED | rc=0 >>
+ 08:54:48 up 14:07,  1 user,  load average: 0.00, 0.00, 0.00
+```
+
+#### Host grouping - INI format
+We can specify the group of hosts to to manage all of them together in **inventory** file
+1. Add group **app** and **db** to **inventory**:
+```
+[app] # Group name
+redditappserver ansible_host=reddit_external_ip
+[db] # Group name
+dbserver ansible_host=db_external_ip
+```
+1. Now we can execute commands by groups instead of servers:
+```bash 
+ansible app -m ping
+```
+
+#### Host grouping - YAML format
+[Inventory's](https://docs.ansible.com/ansible/latest/user_guide/intro_inventory.html) yaml format have been added to Ansible tsrarting from v. 2.4
+1. Create **inventory.yml** file (replace *reddit_external_ip* and *db_external_ip*):
+```yml
+app:
+  hosts:
+    redditappserver:
+      ansible_host: reddit_external_ip
+db:
+  hosts:
+    dbserver:
+      ansible_host: db_external_ip
+```
+1. Validate **inventory.yml** using *-i* option of ansible:
+```bash
+ansible all -m ping -i inventory.yml
+```
+
+#### Checking version of installed components
+1. Check the version of Ruby at **app** group using **command** module:
+```bash
+ansible app -m command -a 'ruby -v'
+edditappserver | CHANGED | rc=0 >>
+ruby 2.3.1p112 (2016-04-26) [x86_64-linux-gnu]
+```
+1. Check the version of Bunder at **app** group using **command** module:
+```bash
+ansible app -m command -a 'bundler -v'
+redditappserver | CHANGED | rc=0 >>
+Bundler version 1.11.2```
+```
+1. Check version of Bunlder and Ruby with single command:
+```bash
+ansible app -m command -a 'ruby -v; bundler -v'
+redditappserver | FAILED | rc=1 >>
+ruby: invalid option -;  (-h will show valid options) (RuntimeError)non-zero return code
+```
+> Module **command** does not use shell (*sh* or *bash*). So stream redirection or pipes will not work. Use module **shell** in that case
+
+1. Check version of Bunlder and Ruby with **shell** module in single command:
+```bash
+ansible app -m shell -a 'ruby -v; bundler -v'
+redditappserver | CHANGED | rc=0 >>
+ruby 2.3.1p112 (2016-04-26) [x86_64-linux-gnu]
+Bundler version 1.11.2
+```
+
+#### Checking service status
+Let's check status of *mongod* service of **db** intstance host using different approaches
+1. Using module *command* or *shell*:
+```bash
+ansible db -m command -a 'systemctl status mongod'
+```
+```bash
+ansible db -m shell -a 'systemctl status mongod'
+```
+1. Using module *systemd* dedicated to service management:
+```bash
+ansible db -m systemd -a name=mongod
+```
+1. Using module *service* compatible with *init.d* services:
+```bash
+ansible db -m service -a name=mongod
+```
+
+#### Using git module
+1. Call *git* module twice
+```bash
+ansible app -m git -a 'repo=https://github.com/express42/reddit.git dest=/home/appuser/reddit'
+```
+```bash
+ansible app -m git -a 'repo=https://github.com/express42/reddit.git dest=/home/appuser/reddit'
+```
+All invocations are completed succesfully
+
+1. Call module *command* and check the error:
+```bash
+ansible app -m command -a 'git clone https://github.com/express42/reddit.git /home/appuser/reddit'
+redditappserver | FAILED | rc=128 >>
+fatal: destination path '/home/appuser/reddit' already exists and is not an empty directory.non-zero return code
+```
+
+#### Writing playbooks
+Playbooks is a list of scenarios that will use ansible modules to reach target state of system. Single scenario called a *play*. Scenarios are executed in order of appearence. Tasks are executed sequentially.
+1. Create file **ansible/clone.yml** with following content:
+```yml
+ - name: Clone
+   hosts: app
+  tasks:
+    - name: Clone Reddit repo
+      git:
+        repo: https://github.com/express42/reddit.git
+        dest: /home/appuser/reddit
+```
+ * **hosts** - target servers
+ * **tasks** - list of modules to be executed
+ * **git** - git module with arguments
+1. Execute playbook **clone.yml**:
+```bash
+ansible-playbook clone.yml
+PLAY RECAP ****************************************
+redditappserver            : ok=2    changed=0    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
+```
+1. Remove **reddit** directory of **app** server:
+```bash
+ansible app -m command -a 'rm -rf ~/reddit'
+redditappserver | CHANGED | rc=0 >>
+```
+
+1. Execute playbook **clone.yml** once again:
+```bash
+ansible-playbook clone.yml
+PLAY RECAP ****************************************
+redditappserver            : ok=2    changed=1    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0   
+```
+> The only differnce of output is **changed=1**. After removal of *reddit* directory Ansible checked out a fresh copy of Reddit repository and reported that state of instance has changed
+
+#### Dynamic inventories
+Ansible supports dynamic generation of inventory by calling a [script](https://docs.ansible.com/ansible/latest/dev_guide/developing_inventory.html#developing-inventory-scripts) that shoud return json to standart output. But this json differs from static json inventory
+1. Change yml-inventory to json-inventory and save content to file **inventory-static.json**:
+```json
+{
+   "app": {
+      "hosts": {
+         "redditappserver": {
+            "ansible_host": "reddit.external.ip.address"
+         }
+      }
+   },
+   "db": {
+      "hosts": {
+         "dbserver": {
+            "ansible_host": "db.external.ip.address"
+         }
+      }
+   }
+}
+```
+```bash
+# Checking json-inventory
+ansible all -m ping -i inventory-static.json
+```
+
+1. Create script **dynamic_inventory.sh** that grabs output variables **reddit_external_ip** and **db_external_ip** using *terraform output* command, injects the vaules of terraform variables and prints content in json format:
+```bash
+#!/bin/bash
+currentDir=$(pwd)
+cd $currentDir/../terraform/stage
+reddit_external_ip=$(terraform output reddit_external_ip)
+db_external_ip=$(terraform output db_external_ip)
+cd $currentDir
+scriptContent=" 
+{
+    "_meta": {
+      "hostvars": {}
+    },
+    "app": {
+      "hosts": ["$reddit_external_ip"]
+    },
+    "db": {
+      "hosts": ["$db_external_ip"]
+    }
+}
+"
+echo $scriptContent
+echo $scriptContent > inventory.json
+```
+1. Execute the script and check the output:
+```
+chmod +x dynamic_inventory.sh && ./dynamic_inventory.sh
+{ _meta: { hostvars: {} }, app: { hosts: [reddit_external_ip] }, db: { hosts: [db_external_ip] } }
+```
+> Have you noticed the difference between static and dynamic json? We have added *_meta* section to return all of the host variables in one script execution
+
+1. Now we can add **dynamic_inventory.sh** as inventory to **ansible.cfg** and check that everything is working smoothly:
+```
+[defaults]
+# Ini inventory
+#inventory = ./inventory
+# Dynamic inventory 
+inventory = ./dynamic_inventory.sh
+```
+```bash
+ansible all -m ping
+```
+
+## Homework # 9: Ansible advanced technics
+### Summary
+1. Using playbooks, handlers and templates with single playbook and single scenario (play)
+2. Using playbooks, handlers and templates with single playbook and multiple scenarios (plays)
+3. Using multiple playbooks
+4. Change provisioners from packer to ansible playbooks
+
+### Turning off provisioners of app and dm modules of terraform
+#### Single playbook and single scenario
+MongoDB is listening *127.0.0.1* by default. Since MongoDB now is working in separate VM we need to change configuration of database to listen on interface that is available to Reddit application VM
+1. Create file **ansible/reddit_app_one_play.yml** and add *mongodb* configuration with tag **db-tag**:
+```
+ ---
+ - name: Configure hosts & deploy application
+  hosts: all
+  tasks:
+    - name: Change mongo config file
+      become: true # <-- Execute under root
+      template:
+        src: templates/mongod.conf.j2 # <-- Path to local template
+        dest: /etc/mongod.conf # <-- Path to remote host
+        mode: 0644 # <-- Permisssions of file
+      tags: db-tag```
+> Adding tag **db-tag** into the task gives possibility to  execute task individually using comand *--limit*
+1. Create file **templates/mongod.conf.j2**:
+```yaml
+# Where and how to store data.
+storage:
+  dbPath: /var/lib/mongodb
+  journal:
+    enabled: true
+# where to write logging data.
+systemLog:
+  destination: file
+  logAppend: true
+  path: /var/log/mongodb/mongod.log
+# network interfaces
+net:
+  # default - is a filter of Jinja2. Use value of argument when variable at the left is undefined
+  port: {{ mongo_port | default('27017') }}
+  bindIp: {{ mongo_bind_ip }}
+```
+
+1. Execute command **ansible-playbook** with option *--check* to verify the syntax and check modifications:
+```bash
+ansible-playbook reddit_app_one_play.yml --check --limit db
+TASK [Change mongo config file]
+ ************************************
+fatal: [35.247.70.59]: FAILED! => {"changed": false, "msg": "AnsibleUndefinedVariable: 'mongo_bind_ip' is undefined"}
+PLAY RECAP
+ ************************************
+35.247.70.59               : ok=1    changed=0    unreachable=0    failed=1
+```
+
+> option *--limit* overrides target hosts of playbook
+
+2. Add missing variable **mongo_bind_ip** using *vars* block:
+```yaml
+...
+ - name: Configure hosts & deploy application
+   hosts: all
+   vars:
+    mongo_bind_ip: 0.0.0.0 # <-- Variable with default value
+   tasks:
+...
+```
+
+##### Ansible handlers
+Ansible handlers are similar to tasks but are executed using notifcations from task when it changes the state. Userfull for resttart of services when cafiguration files are changed
+1. Add block **handlers** to  *reddit_app_one_play.yml* and new task *"restart mongod"*:
+```yaml
+ ...
+    tags: db-tag
+  handlers: 
+    - name: restart mongod
+      become: true
+      service: name=mongod state=restarted
+```
+
+1. Apply changes:
+```bash
+ansible-playbook reddit_app_one_play.yml --limit db
+```
+
+##### Application tasks
+1. Create file **files/puma.service** with following content:
+```
+[Unit]
+Description=Puma HTTP Server
+After=network.target
+[Service]
+Type=simple
+EnvironmentFile=/home/appuser/db_config
+User=appuser
+WorkingDirectory=/home/appuser/reddit
+ExecStart=/bin/bash -lc 'puma'
+Restart=always
+[Install]
+WantedBy=multi-user.target
+```
+
+1. Add 2 tasks with module *copy* and systemd to copy prepared unit-file and configure autostart:
+```yaml
+tasks:
+ - name: Change mongo config file
+...
+ - name: Add unit file for Puma
+   become: true
+   copy:
+     src: files/puma.service
+     dest: /etc/systemd/system/puma.service
+   tags: app-tag
+   notify: reload puma
+ - name: enable puma
+   become: true
+   systemd: name=puma enabled=yes
+   tags: app-tag
+```
+
+1. Add notifier to restart puma service:
+```
+ handlers:
+ - name: restart mongod
+   become: true
+   service: name=mongod state=restarted
+ - name: reload puma
+   become: true
+   systemd: name=puma state=restarted
+```
+
+1. Create template file **templates/db_config.j2** containing value for environment variable *DATABASE_URL* to redefine address of MongoDB for Reddit app:
+```
+DATABASE_URL={{ db_internal_ip }}
+```
+
+1. Add variable **db_internal_ip** to the variables section of playbook (replace ADDRESs.OF.MONGO.DB by internal ip address of mongodb instance). The placeholder **db_internal_ip** of *db_config.j2* will be replaced by the  value from palybook variable:
+```
+db_internal_ip: ADDRES.OF.MONGO.DB
+```
+
+1. Add task to copy **db_config** to the directory of [EnvironmentFile](#application-unit):
+```
+ - name: Add unit file for Puma
+ ...
+ - name: Add config for DB connection
+ template:
+ src: templates/db_config.j2
+ dest: /home/appuser/db_config
+ tags: app-tag
+```
+
+1. Verify and apply changes:
+```bash
+ansible-playbook reddit_app_one_play.yml --check --limit app --tags app-tag
+```
+```bash
+ansible-playbook reddit_app_one_play.yml --limit app --tags app-tag
+```
+
+##### Database tasks
+1. Add new tasks with modules **git** and **bundler** to checkout Reddit application and install Ruby Gems:
+```
+ - name: Fetch the latest version of application code
+   git:
+     repo: 'https://github.com/express42/reddit.git'
+     dest: /home/appuser/reddit
+     version: monolith # <-- branch
+   tags: deploy-tag
+   notify: reload puma
+ - name: Bundle install
+   bundler:
+     state: present
+     chdir: /home/appuser/reddit # <-- working directory of bundler
+   tags: deploy-tag
+```
+
+1. Verify and apply changes using tag **deploy-tag**:
+```bash
+ansible-playbook reddit_app_one_play.yml --check --limit app --tags deploy-tag
+```
+```bash
+ansible-playbook reddit_app_one_play.yml --limit app --tags deploy-tag
+```
+
+#### Single playbook and several plays (scenarios)
+Previously we have to specify *-limit* option to apply changes to selected groups of servers (app, db) only and *--tags* to execute limited set of tasks. It looks cumbersome. Let`s divide this single scenario
+##### Play for MongoDB
+1. Copy variables, tasks, handlers related to MongoDB to **reddit_app_multiple_plays.yml**
+```
+ ---
+ - name: Configure MongoDB for Reddit app # < -- Changed description
+  hosts: db # < -- Default server group
+  become: true # < -- all nested tasks amd handlers will be executed as root
+  tags: db-tag
+  vars:
+    mongo_bind_ip: 0.0.0.0 # <-- Variable with default value    
+  tasks:
+    - name: Change mongo config file      
+      template:
+        src: templates/mongod.conf.j2 # <-- Path to local template
+        dest: /etc/mongod.conf # <-- Path to remote host
+        mode: 0644 # <-- Permisssions of file      
+      notify: restart mongod    
+  handlers:
+    - name: restart mongod      
+      service: name=mongod state=restarted
+```
+
+> We have changed *hosts* to **db**, moved *become* and *tags* to upper level of play
+
+##### Play for Reddit app installation
+1. Copy variables, tasks, handlers related to Reddit app installation to **reddit_app_multiple_plays.yml**:
+```
+ - name: Download Reddit apllication # < -- Changed description
+  hosts: app # < -- Default server group
+  become: true # < -- all nested tasks amd handlers will be executed as root
+  tags: deploy-tag
+  tasks:
+    - name: Fetch the latest version of application code
+      git:
+        repo: 'https://github.com/express42/reddit.git'
+        dest: /home/appuser/reddit
+        version: monolith # <-- branch      
+      notify: reload puma
+
+    - name: Bundle install
+      bundler:
+        state: present
+        chdir: /home/appuser/reddit # <-- working directory of bundler
+  handlers:    
+    - name: reload puma      
+      systemd: name=puma state=reloaded
+```
+
+> We've changed *tags* to **deploy-tag**, handler's name to **reload puma**
+
+##### Play for Reddit app configuration
+1. Copy variables, tasks, handlers related to Reddit app to **reddit_app_multiple_plays.yml**:
+``` 
+ - name: Configure Reddit apllication # < -- Changed description
+  hosts: app # < -- Default server group
+  become: true # < -- all nested tasks amd handlers will be executed as root
+  tags: app-tag
+  vars:
+    db_internal_ip: IP.ADDRESS.OF.MONGODB
+  tasks:
+    - name: Add unit file for Puma      
+      copy:
+        src: files/puma.service
+        dest: /etc/systemd/system/puma.service      
+      notify: reload puma
+      
+    - name: Add config for DB connection
+      template:
+        src: templates/db_config.j2
+        dest: /home/appuser/db_config
+        owner: appuser
+        group: appuser      
+        
+    - name: enable puma      
+      systemd: name=puma enabled=yes      
+
+  handlers:    
+    - name: reload puma      
+      systemd: name=puma state=restarted
+```
+
+##### Check and apply changes
+1. Execute playbook with tag **db-tag**:
+```bash
+ansible-playbook reddit_app_multiple_plays.yml --check --tags db-tag
+```
+```bash
+ansible-playbook reddit_app_multiple_plays.yml --tags db-tag
+```
+
+1. Execute playbook with tag **app-tag**:
+```bash
+ansible-playbook reddit_app_multiple_plays.yml --check --tags app-tag
+```
+```bash
+ansible-playbook reddit_app_multiple_plays.yml --tags app-tag
+```
+
+1. Execute playbook with tag **deploy-tag**:
+```bash
+ansible-playbook reddit_app_multiple_plays.yml --check --tags deploy-tag
+```
+```bash
+ansible-playbook reddit_app_multiple_plays.yml --tags deploy-tag
+```
+
+### Several playbooks
+The content of reddit_app_multiple_plays.yml is pretty complex. We can split it to three playbooks: **app.yml**, **db.yml**, **deploy.yml** and remove tags
+1. Create **site.yml** that will contain all three playbooks:
+```
+ ---
+ - import_playbook: db.yml
+ - import_playbook: app.yml
+ - import_playbook: deploy.yml
+```
+
+1. And apply changes:
+```bash
+ansible-playbook site.yml --check
+ansible-playbook site.yml
+```
+
+### Provisioning with Ansible
+Using [documentation](https://docs.ansible.com/ansible/latest/list_of_all_modules.html) of modules we can replace provisioners of packer (**app.json**, **db.json**) from shell scripts (*packer/scripts/install_ruby.sh*,*packer/scripts/install_mongodb.sh*) to ansible modules
+1. Create file **ansible/packer_app.yml** and use module [apt](https://docs.ansible.com/ansible/latest/modules/apt_module.html#apt-module) to install Ruby and Bundler:
+```
+ ---
+ - name: Install Ruby and Packer 
+  hosts: app 
+  become: true # < -- sudo
+  tasks:
+    - name: Install Ruby and Bundler
+      apt:
+        name:
+          - ruby-full
+          - ruby-bundler
+          - build-essential
+        update_cache: true  # < -- apt update before install
+```
+
+1. Create file **ansible/packer_db.yml** and use modules:
+ * [apt_key](https://docs.ansible.com/ansible/latest/modules/apt_key_module.html#apt-key-module) to add apt key,
+ * [apt_repository](https://docs.ansible.com/ansible/latest/modules/apt_repository_module.html#apt-repository-module) to add apt repository,
+ * [apt](https://docs.ansible.com/ansible/latest/modules/apt_module.html#apt-module) to install MongoDB,
+ * [systemd](https://docs.ansible.com/ansible/latest/modules/systemd_module.html#systemd-module) to enable autostart  and start the service
+
+ ```
+ ---
+ - name: Install and Start MongoDB for Reddit app # 
+  hosts: db
+  become: true # < -- sudo
+  tasks:
+    - name: Add an apt key
+      apt_key:
+        keyserver: hkp://keyserver.ubuntu.com:80
+        id: D68FA50FEA312927
+
+    - name: Add MongoDB repository into sources list
+      apt_repository:
+        repo: deb http://repo.mongodb.org/apt/ubuntu xenial/mongodb-org/3.2 multiverse
+        state: present
+
+    - name: Install mongodb-org package
+      apt:
+        name: mongodb-org          
+        update_cache: true
+
+    - name: Enable autostart of  MongoDB service
+      systemd:
+        name: puma
+        enabled: true
+        state: started        
+
+ ```
+
+1. Replace the provisioner of **packer/app.json** from *shell* to *ansible*:
+```json
+"provisioners": [
+{
+"type": "ansible",
+"playbook_file": "ansible/packer_app.yml"
+}
+]
+```
+
+1. Replace the provisioner of **packer/db.json** from *shell* to *ansible*:
+```json
+"provisioners": [
+{
+"type": "ansible",
+"playbook_file": "ansible/packer_db.yml"
+}
+]
+```
+
+1. Validate and build new images:
+```bash
+packer validate -var-file=packer/variables.json packer/app.json
+```
+```bash
+packer validate -var-file=packer/variables.json packer/db.json
+```
+```bash
+packer build -var-file=packer/variables.json packer/app.json
+```
+```bash
+packer build -var-file=packer/variables.json packer/db.json
+```
+
+1. Apply new infrastructure
+```bash
+cd terraform && terraform destroy && terraform apply
+```
+
+1. Apply ansible playbook
+```bash
+ansible-playbook site.yml
 ```

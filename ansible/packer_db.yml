@@ -1,0 +1,25 @@
+---
+- name: Install and Start MongoDB for Reddit app # < -- Changed description
+  hosts: all # < -- Default server group
+  become: true # < -- all nested tasks amd handlers will be executed as root  
+  tasks:
+    - name: Add an apt key
+      apt_key:
+        keyserver: hkp://keyserver.ubuntu.com:80
+        id: D68FA50FEA312927
+
+    - name: Add MongoDB repository into sources list
+      apt_repository:
+        repo: deb http://repo.mongodb.org/apt/ubuntu xenial/mongodb-org/3.2 multiverse
+        state: present
+
+    - name: Install mongodb-org package
+      apt:
+        name: mongodb-org          
+        update_cache: true
+
+    - name: Enable autostart of  MongoDB service
+      systemd:
+        name: mongod
+        enabled: true
+        state: started        

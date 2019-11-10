@@ -1,0 +1,13 @@
+---
+- name: Install Ruby and Packer 
+  hosts: all 
+  become: true # < -- sudo
+  tasks:
+    - name: Install Ruby and Bundler
+      apt:
+        name:
+          - ruby-full
+          - ruby-bundler
+          - build-essential
+        update_cache: true  # < -- apt update before install
+

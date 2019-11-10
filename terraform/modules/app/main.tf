@@ -33,30 +33,30 @@ resource "google_compute_instance" "app" {
   }
 
   # Provisioners
-  provisioner "file" {
+  #provisioner "file" {
     
     # Commented since terraform copies file into 
     # .terraform/modules/XXXX/files/puma.service
     # and calls it without adding '/files'
     # source      = "${path.module}/files/puma.service"
-    source      = "${path.module}/puma.service"
-    destination = "/tmp/puma.service"
-  }
+    #source      = "${path.module}/puma.service"
+    #destination = "/tmp/puma.service"
+  #}
 
-  provisioner "remote-exec" {
+  #provisioner "remote-exec" {
     
     # Commented since terraform copies file into 
     # .terraform/modules/XXXX/files/deploy.sh
     # and calls it without adding '/files'
     # script = "${path.module}files/deploy.sh"
-    script = "${path.module}/deploy.sh"
-  }
+    #script = "${path.module}/deploy.sh"
+  #}
 
-  provisioner "remote-exec" {
-    inline = [
-      "export DATABASE_URL=${var.db_address}:27017"
-    ]
-  }
+  #provisioner "remote-exec" {
+  #  inline = [
+  #    "export DATABASE_URL=${var.db_address}:27017"
+  #  ]
+  #}
 }
 
 # Static IP address

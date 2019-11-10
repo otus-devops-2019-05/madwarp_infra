@@ -1,0 +1,19 @@
+---
+- name: Configure MongoDB for Reddit app # < -- Changed description
+  hosts: db # < -- Default server group
+  become: true # < -- all nested tasks amd handlers will be executed as root
+  #tags: db-tag
+  vars:
+    mongo_bind_ip: 0.0.0.0 # <-- Variable with default value    
+  tasks:
+    - name: Change mongo config file      
+      template:
+        src: templates/mongod.conf.j2 # <-- Path to local template
+        dest: /etc/mongod.conf # <-- Path to remote host
+        mode: 0644 # <-- Permisssions of file      
+      notify: restart mongod
+    
+  handlers:
+    - name: restart mongod      
+      service: name=mongod state=restarted
+

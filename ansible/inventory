@@ -1,0 +1,5 @@
+[app] # Group name
+redditappserver ansible_host=34.82.15.232
+
+[db] # Group name 
+dbserver ansible_host=34.82.6.244 
